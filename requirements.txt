@@ -1,13 +1,5 @@
-<<<<<<< HEAD
 groq
 chromadb
 sentence-transformers
 PyPDF2
-<<<<<<< HEAD
 python-dotenv
-=======
-python-dotenv
->>>>>>> 5d7d6f0adcb365449f72c2e0f897b16086de81b2
-=======
-
->>>>>>> 5032121ac67ce44de3a78ec6d563ec8de27debe5
