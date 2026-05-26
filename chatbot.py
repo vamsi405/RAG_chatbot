@@ -26,6 +26,7 @@ st.set_page_config(
 st.title("🏏 Cricket RAG Chatbot")
 
 st.write("Ask questions from the IPL Strategy PDF")
+st.write("Type 'exit' to stop the chatbot.")
 
 
 # ==================================
@@ -47,7 +48,7 @@ client = Groq(
 
 
 # ==================================
-# Embedding Model
+# Load Embedding Model
 # ==================================
 
 @st.cache_resource
@@ -64,7 +65,7 @@ embedding_model = load_embedding_model()
 
 
 # ==================================
-# ChromaDB
+# Load ChromaDB
 # ==================================
 
 @st.cache_resource
@@ -134,7 +135,7 @@ while start < len(text):
 
 
 # ==================================
-# Create Embeddings
+# Store Embeddings in ChromaDB
 # ==================================
 
 if collection.count() == 0:
@@ -161,25 +162,78 @@ else:
 
 
 # ==================================
-# User Question
+# Session State for Chat History
 # ==================================
 
-query = st.text_input(
-    "Ask a Question from the PDF"
+if "messages" not in st.session_state:
+
+    st.session_state.messages = []
+
+
+# ==================================
+# Display Previous Chat Messages
+# ==================================
+
+for message in st.session_state.messages:
+
+    with st.chat_message(message["role"]):
+
+        st.markdown(message["content"])
+
+
+# ==================================
+# Chat Input
+# ==================================
+
+query = st.chat_input(
+    "Ask a question from the PDF..."
 )
 
 
 # ==================================
-# Generate Answer
+# Process User Query
 # ==================================
 
-if st.button("Get Answer"):
+if query:
 
-    if query:
+    # ----------------------------------
+    # Exit Condition
+    # ----------------------------------
+
+    if query.lower() == "exit":
+
+        st.warning("Chatbot session ended.")
+
+        st.stop()
+
+    # ----------------------------------
+    # Store User Message
+    # ----------------------------------
+
+    st.session_state.messages.append(
+        {
+            "role": "user",
+            "content": query
+        }
+    )
+
+    # ----------------------------------
+    # Display User Message
+    # ----------------------------------
+
+    with st.chat_message("user"):
+
+        st.markdown(query)
+
+    # ----------------------------------
+    # Generate Assistant Response
+    # ----------------------------------
+
+    with st.chat_message("assistant"):
 
         with st.spinner("Generating Answer..."):
 
-            # Query Embedding
+            # Create Query Embedding
 
             query_embedding = embedding_model.encode(
                 query
@@ -192,7 +246,11 @@ if st.button("Get Answer"):
                 n_results=3
             )
 
+            # Retrieved Chunks
+
             retrieved_chunks = results["documents"][0]
+
+            # Create Context
 
             context = "\n".join(retrieved_chunks)
 
@@ -215,14 +273,14 @@ Question:
 {query}
 """
 
-            # LLM Response
+            # Generate LLM Response
 
             response = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=[
                     {
                         "role": "system",
-                        "content": "Answer using only the provided context."
+                        "content": "Answer only using the provided context."
                     },
                     {
                         "role": "user",
@@ -232,14 +290,21 @@ Question:
                 temperature=0
             )
 
+            # Extract Answer
+
             answer = response.choices[0].message.content
 
             # Display Answer
 
-            st.subheader("Answer")
+            st.markdown(answer)
 
-            st.write(answer)
+    # ----------------------------------
+    # Store Assistant Message
+    # ----------------------------------
 
-    else:
-
-        st.warning("Please enter a question.")
+    st.session_state.messages.append(
+        {
+            "role": "assistant",
+            "content": answer
+        }
+    )
