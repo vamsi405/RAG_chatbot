@@ -3,3 +3,8 @@ chromadb
 sentence-transformers
 PyPDF2
 python-dotenv
+streamlit 
+langchain 
+langchain-community 
+langchain-groq 
+faiss-cpu 
