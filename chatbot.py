@@ -1,20 +1,31 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[1]:
-
+# ==================================
+# Import Libraries
+# ==================================
 
 import os
+import streamlit as st
 from dotenv import load_dotenv
 
 from groq import Groq
+from sentence_transformers import SentenceTransformer
+
 import chromadb
 import PyPDF2
 
-from sentence_transformers import SentenceTransformer
 
+# ==================================
+# Streamlit Page Config
+# ==================================
 
-# In[3]:
+st.set_page_config(
+    page_title="Cricket RAG Chatbot",
+    page_icon="🏏",
+    layout="centered"
+)
+
+st.title("🏏 Cricket RAG Chatbot")
+
+st.write("Ask questions from the IPL Strategy PDF")
 
 
 # ==================================
@@ -25,6 +36,7 @@ load_dotenv()
 
 groq_api_key = os.getenv("GROQ_API_KEY")
 
+
 # ==================================
 # Groq Client
 # ==================================
@@ -33,26 +45,44 @@ client = Groq(
     api_key=groq_api_key
 )
 
+
 # ==================================
 # Embedding Model
-# Free and Accurate
 # ==================================
 
-embedding_model = SentenceTransformer(
-    "all-MiniLM-L6-v2"
-)
+@st.cache_resource
+def load_embedding_model():
+
+    model = SentenceTransformer(
+        "all-MiniLM-L6-v2"
+    )
+
+    return model
+
+
+embedding_model = load_embedding_model()
+
 
 # ==================================
-# Persistent ChromaDB
+# ChromaDB
 # ==================================
 
-chroma_client = chromadb.PersistentClient(
-    path="./chroma_db"
-)
+@st.cache_resource
+def load_chroma():
 
-collection = chroma_client.get_or_create_collection(
-    name="cricket_rag"
-)
+    chroma_client = chromadb.PersistentClient(
+        path="./chroma_db"
+    )
+
+    collection = chroma_client.get_or_create_collection(
+        name="cricket_rag"
+    )
+
+    return collection
+
+
+collection = load_chroma()
+
 
 # ==================================
 # Load PDF
@@ -60,18 +90,26 @@ collection = chroma_client.get_or_create_collection(
 
 pdf_path = r"E:\Apps\Chat_Bot\RAG_chatbot\IPL_Strategy_PDF_Chatbot_Demo.pdf"
 
-pdf_reader = PyPDF2.PdfReader(pdf_path)
 
-text = ""
+@st.cache_data
+def load_pdf_text():
 
-for page in pdf_reader.pages:
+    pdf_reader = PyPDF2.PdfReader(pdf_path)
 
-    page_text = page.extract_text()
+    text = ""
 
-    if page_text:
-        text += page_text
+    for page in pdf_reader.pages:
 
-print("PDF Loaded Successfully")
+        page_text = page.extract_text()
+
+        if page_text:
+            text += page_text
+
+    return text
+
+
+text = load_pdf_text()
+
 
 # ==================================
 # Chunking
@@ -94,63 +132,73 @@ while start < len(text):
 
     start += chunk_size - chunk_overlap
 
-print(f"Total Chunks Created: {len(chunks)}")
 
 # ==================================
-# Create Embeddings Once
+# Create Embeddings
 # ==================================
 
 if collection.count() == 0:
 
-    print("Creating embeddings...")
+    with st.spinner("Creating embeddings..."):
 
-    for i, chunk in enumerate(chunks):
+        for i, chunk in enumerate(chunks):
 
-        embedding = embedding_model.encode(
-            chunk
-        ).tolist()
+            embedding = embedding_model.encode(
+                chunk
+            ).tolist()
 
-        collection.add(
-            ids=[str(i)],
-            documents=[chunk],
-            embeddings=[embedding]
-        )
+            collection.add(
+                ids=[str(i)],
+                documents=[chunk],
+                embeddings=[embedding]
+            )
 
-    print("Embeddings Stored Successfully")
+    st.success("Embeddings Stored Successfully")
 
 else:
 
-    print("Existing Embeddings Found")
+    st.success("Existing Embeddings Found")
+
 
 # ==================================
-# Chat Loop
+# User Question
 # ==================================
 
-while True:
+query = st.text_input(
+    "Ask a Question from the PDF"
+)
 
-    query = input("\nAsk Question: ")
 
-    if query.lower() == "exit":
-        break
+# ==================================
+# Generate Answer
+# ==================================
 
-    # Query Embedding
+if st.button("Get Answer"):
 
-    query_embedding = embedding_model.encode(
-        query
-    ).tolist()
+    if query:
 
-    # Similarity Search
+        with st.spinner("Generating Answer..."):
 
-    results = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=3
-    )
+            # Query Embedding
 
-    retrieved_chunks = results["documents"][0]
+            query_embedding = embedding_model.encode(
+                query
+            ).tolist()
 
-    context = "\n".join(retrieved_chunks)
+            # Similarity Search
 
-    prompt = f"""
+            results = collection.query(
+                query_embeddings=[query_embedding],
+                n_results=3
+            )
+
+            retrieved_chunks = results["documents"][0]
+
+            context = "\n".join(retrieved_chunks)
+
+            # Prompt
+
+            prompt = f"""
 You are a Cricket Knowledge Assistant.
 
 Strict Rules:
@@ -158,7 +206,7 @@ Strict Rules:
 1. Answer only using the provided context.
 2. Do not use external knowledge.
 3. If answer is not found, say:
-   "I could not find that information in the document."
+"I could not find that information in the document."
 
 Context:
 {context}
@@ -167,29 +215,31 @@ Question:
 {query}
 """
 
-    response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[
-            {
-                "role": "system",
-                "content": "Answer using only the provided context."
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        temperature=0
-    )
+            # LLM Response
 
-    answer = response.choices[0].message.content
+            response = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Answer using only the provided context."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=0
+            )
 
-    print("\nAnswer:")
-    print(answer)
+            answer = response.choices[0].message.content
 
+            # Display Answer
 
-# In[ ]:
+            st.subheader("Answer")
 
+            st.write(answer)
 
+    else:
 
-
+        st.warning("Please enter a question.")
